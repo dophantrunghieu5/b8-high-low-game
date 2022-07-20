@@ -1,5 +1,8 @@
-import { Box, Flex, Center, Heading, Button, Stack } from "@chakra-ui/react";
-import { RiArrowDownSLine, RiArrowUpSLine } from "react-icons/ri";
+import { Box, Button, Center, Flex, Heading } from "@chakra-ui/react";
+import { Actions, Card, Result } from "./components";
+import { createMachine, assign } from "xstate";
+import { useMachine } from "@xstate/react";
+import { GAME_STATE, GAME_ACTION, GAME_RESULT, USER_CHOOSE } from './constants';
 
 /*
 ## 需求:
@@ -52,7 +55,94 @@ import { RiArrowDownSLine, RiArrowUpSLine } from "react-icons/ri";
   - Complete the game with XState
     - document：https://xstate.js.org/docs/
 */
+
+interface HighLowGameContext {
+  leftCardValue?: number;
+  rightCardValue?: number;
+  result?: GAME_RESULT.WIN | GAME_RESULT.LOSE,
+  userChoose?: USER_CHOOSE.HIGHER | USER_CHOOSE.LOWER
+}
+
+const randomCardValue = (context: HighLowGameContext) => {
+  const min = 1;
+  const max = 10;
+  return Math.floor(Math.random() * (max - min + 1) + min);
+}
+
+const winOrLose = (context: HighLowGameContext) => {
+  const { leftCardValue, rightCardValue, userChoose } = context;
+  if(leftCardValue === undefined || rightCardValue === undefined || userChoose === undefined) return GAME_RESULT.LOSE;
+
+  if(userChoose === USER_CHOOSE.HIGHER) return rightCardValue > leftCardValue ? GAME_RESULT.WIN : GAME_RESULT.LOSE;
+  if(userChoose === USER_CHOOSE.LOWER) return rightCardValue < leftCardValue ? GAME_RESULT.WIN : GAME_RESULT.LOSE;
+  return GAME_RESULT.LOSE;
+}
+
+const highLowGame = createMachine<HighLowGameContext>({
+  id: "highLow",
+  initial: GAME_STATE.NEW,
+  context: {
+    leftCardValue: undefined,
+    rightCardValue: undefined,
+    userChoose: undefined,
+    result: undefined,
+  },
+  states: {
+    [GAME_STATE.NEW]: {
+      on: { 
+        [GAME_ACTION.START_GAME]: GAME_STATE.STARTED
+      }
+    },
+    [GAME_STATE.STARTED]: {
+      entry: assign({ 
+        leftCardValue: (ctx) => randomCardValue(ctx),
+        rightCardValue: (ctx) => undefined,
+        userChoose: (ctx) => undefined,
+        result: (ctx) => undefined,
+      }),
+      on: {
+        [GAME_ACTION.USER_CHOOSE_ACTION]: {
+          target: GAME_STATE.RESULT,
+          actions:  assign({
+            rightCardValue: (ctx) => randomCardValue(ctx),
+            userChoose: (ctx, event) => event.data.userChoose
+          })
+        }
+      }
+    },
+    [GAME_STATE.RESULT]: {
+      entry: assign({ 
+        result: (ctx) => winOrLose(ctx)
+      }),
+      on: {
+        [GAME_ACTION.RESTART]: GAME_STATE.STARTED
+      }
+    }
+  }
+});
+
 const App = () => {
+  const [state, send] = useMachine(highLowGame);
+  const { leftCardValue, rightCardValue, result: gameResult } = state.context;
+  const gameStarted = !state.matches(GAME_STATE.NEW);
+  const showResult = state.matches(GAME_STATE.RESULT);
+
+  const startGame = () => {
+    send(GAME_ACTION.START_GAME);
+  }
+  const handleUserAction = (option: string) => {
+    if(!option) return;
+    send({
+      type: GAME_ACTION.USER_CHOOSE_ACTION,
+      data: {
+        userChoose: option
+      }
+    });
+  }
+  const playAgain = () => {
+    send(GAME_ACTION.RESTART);
+  }
+  
   return (
     <Box bgColor="#f3f3f3" h="100vh">
       <Center pt="120px">
@@ -67,85 +157,24 @@ const App = () => {
           </Flex>
           <Flex w="full" justify="space-between">
             <Flex maxW="120px" flex={1}>
-              <Center
-                w="full"
-                h="150px"
-                px="24px"
-                py="16px"
-                bgColor="white"
-                borderRadius="md"
-                boxShadow="lg"
-                flex={1}
-              >
-                <Heading fontSize="54px" color="gray.500">
-                  ?
-                </Heading>
-              </Center>
+              <Card value={leftCardValue}/>
             </Flex>
             <Flex maxW="120px" flex={1} direction="column">
-              <Center
-                w="full"
-                h="150px"
-                px="24px"
-                py="16px"
-                bgColor="white"
-                borderRadius="md"
-                boxShadow="lg"
-              >
-                <Heading fontSize="54px" color="blue.500">
-                  ?
-                </Heading>
-              </Center>
-
-              {/* `Higher` and `Lower` buttons UI */}
-              {/* <Button
-                mt="32px"
-                colorScheme="twitter"
-                leftIcon={<RiArrowUpSLine />}
-                isFullWidth
-              >
-                Higher
-              </Button>
-              <Button
-                mt="8px"
-                colorScheme="facebook"
-                leftIcon={<RiArrowDownSLine />}
-                isFullWidth
-              >
-                Lower
-              </Button> */}
+              <Card value={rightCardValue}/>
+              { gameStarted && !showResult && <Actions onChooseAction={(option) => handleUserAction(option)}/> }
             </Flex>
           </Flex>
 
-          <Box mt="64px">
+          { !gameStarted && <Box mt="64px">
             <Button
               colorScheme="blue"
-              onClick={() => {
-                // TODO: Start a new game
-              }}
+              onClick={() => startGame()}
             >
               Start Game
             </Button>
-          </Box>
+          </Box>}
 
-          {/* Game result UI */}
-          {/* <Stack mt="24px" spacing="16px">
-            <Heading color="twitter.300" align="center">
-              WIN!
-            </Heading>
-            <Heading color="red.300" align="center">
-              LOSE!
-            </Heading>
-
-            <Button
-              colorScheme="blue"
-              onClick={() => {
-                // TODO: Clear game result and start a new game
-              }}
-            >
-              Play Again
-            </Button>
-          </Stack> */}
+          { showResult && <Result result={gameResult} onPlayAgain={() => playAgain()}/> }
         </Flex>
       </Center>
     </Box>
